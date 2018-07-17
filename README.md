@@ -8,7 +8,7 @@ In order to run this you will need Starcraft 2, the PySC2 package, and [maps](ht
 After cloning this file, add it to the agents folder of the PySC2 package.
 
 ### Currently in progress
-*Implementing all units and buildings into the agents actions.
+* Implementing all units and buildings into the agents actions.
 *Defeating an A.I on easy.
 *Using SARSA to reward the agent.
 *Having the agent expand to a second base.
