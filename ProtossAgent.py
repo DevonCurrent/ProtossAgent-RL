@@ -31,8 +31,34 @@ class ProtossAgent(base_agent.BaseAgent):
 		probes = self.get_units_by_type(obs, units.Protoss.Probe)
 		if len(probes) > 0:
 			probe = random.choice(probes)
-			return actions.FUNCTIONS.select_point("select_all_type", (probe.x,
-			probe.y))
+			return actions.FUNCTIONS.select_point("select_all_type", (probe.x, probe.y))
+
+	def build_pylon(self, obs):
+		if self.unit_type_is_selected(obs, units.Protoss.Probe):
+			if self.can_do(obs, actions.FUNCTIONS.Build_Pylon_screen.id):
+				x = random.randint(0, 83)
+				y = random.randint(0, 83)
+				return actions.FUNCTIONS.Build_Pylon_screen("now", (x, y))
+		return self.select_available_probe(obs)
+
+	def build_gateway(self, obs):
+		if self.unit_type_is_selected(obs, units.Protoss.Probe):
+			if self.can_do(obs, actions.FUNCTIONS.Build_Gateway_screen.id):
+					x = random.randint(0, 83)
+					y = random.randint(0, 83)
+					return actions.FUNCTIONS.Build_Gateway_screen("now", (x, y))
+			return self.select_available_probe(obs)
+
+	def select_army(self, obs):
+		if self.can_do(obs, actions.FUNCTIONS.select_army.id):
+			return actions.FUNCTIONS.select_army("select")
+
+	def attack_enemy(self, obs):
+		if self.unit_type_is_selected(obs, units.Protoss.Zealot):
+			if self.can_do(obs, actions.FUNCTIONS.Attack_minimap.id):
+				return actions.FUNCTIONS.Attack_minimap("now",
+				self.attack_coordinates)
+		return self.select_army(obs)
 
 	def step(self, obs):
 		super(ProtossAgent, self).step(obs)
@@ -50,42 +76,16 @@ class ProtossAgent(base_agent.BaseAgent):
 
 		zealots = self.get_units_by_type(obs, units.Protoss.Zealot)
 		if len(zealots) >= 12:
-			if self.unit_type_is_selected(obs, units.Protoss.Zealot):
-				if self.can_do(obs, actions.FUNCTIONS.Attack_minimap.id):
-					return actions.FUNCTIONS.Attack_minimap("now",
-					self.attack_coordinates)
-
-			if self.can_do(obs, actions.FUNCTIONS.select_army.id):
-				return actions.FUNCTIONS.select_army("select")
+			return self.attack_enemy(obs)
 
 		pylon = self.get_units_by_type(obs, units.Protoss.Pylon)
 		free_supply = (obs.observation.player.food_cap - obs.observation.player.food_used)
 		if free_supply < 15:
-			if self.unit_type_is_selected(obs, units.Protoss.Probe):
-				if self.can_do(obs, actions.FUNCTIONS.Build_Pylon_screen.id):
-					x = random.randint(0, 83)
-					y = random.randint(0, 83)
-					
-					return actions.FUNCTIONS.Build_Pylon_screen("now", (x, y))
-
-			self.select_available_probe(obs)
-
+			return self.build_pylon(obs)
 
 		gateways = self.get_units_by_type(obs, units.Protoss.Gateway)
 		if len(gateways) <= 2:
-			if self.unit_type_is_selected(obs, units.Protoss.Probe):
-				if self.can_do(obs, actions.FUNCTIONS.Build_Gateway_screen.id):
-					x = random.randint(0, 83)
-					y = random.randint(0, 83)
-
-					return actions.FUNCTIONS.Build_Gateway_screen("now", (x, y))
-
-			probes = self.get_units_by_type(obs, units.Protoss.Probe)
-			if len(probes) > 0:
-				probe = random.choice(probes)
-
-				return actions.FUNCTIONS.select_point("select_all_type", (probe.x,
-				probe.y))
+			return self.build_gateway(obs)
 
 		if self.can_do(obs, actions.FUNCTIONS.Train_Zealot_quick.id):
 			return actions.FUNCTIONS.Train_Zealot_quick("now")
