@@ -74,21 +74,33 @@ class ProtossAgent(base_agent.BaseAgent):
 			else:
 				self.attack_coordinates = (12, 16)
 
+		gateways = self.get_units_by_type(obs, units.Protoss.Gateway)
 		zealots = self.get_units_by_type(obs, units.Protoss.Zealot)
+		pylon = self.get_units_by_type(obs, units.Protoss.Pylon)
+		free_supply = (obs.observation.player.food_cap - obs.observation.player.food_used)
+		idle_worker_count = obs.observation.player.idle_worker_count
+
+
+
 		if len(zealots) >= 12:
 			return self.attack_enemy(obs)
 
-		pylon = self.get_units_by_type(obs, units.Protoss.Pylon)
-		free_supply = (obs.observation.player.food_cap - obs.observation.player.food_used)
 		if free_supply < 15:
 			return self.build_pylon(obs)
 
-		gateways = self.get_units_by_type(obs, units.Protoss.Gateway)
 		if len(gateways) <= 2:
 			return self.build_gateway(obs)
 
 		if self.can_do(obs, actions.FUNCTIONS.Train_Zealot_quick.id):
 			return actions.FUNCTIONS.Train_Zealot_quick("now")
+
+		if idle_worker_count > 1:
+			if self.unit_type_is_selected(obs, units.Protoss.Probe):
+				if self.can_do(obs, actions.FUNCTIONS.Harvest_Gather_screen.id):
+					x = random.randint(0, 83)
+					y = random.randint(0 ,83)
+					return actions.FUNCTIONS.Harvest_Gather_screen("now", (x, y))
+			return actions.FUNCTIONS.select_idle_worker
 
 		if len(gateways) > 0:
 			gateway = random.choice(gateways)
