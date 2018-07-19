@@ -1,12 +1,110 @@
+import random
+import math
+import os.path
+
+import numpy as np
+import pandas as pd
+
 from pysc2.agents import base_agent
 from pysc2.env import sc2_env
 from pysc2.lib import actions, features, units
 from absl import app
 import random
 
+DATA_FILE = 'sparse_agent_data'
+
+ACTION_DO_NOTHING = 'donothing'
+ACTION_BUILD_PYLON = 'buildpylon'
+ACTION_BUILD_GATEWAY = 'buildgateway'
+ACTION_BUILD_ZEALOT = 'buildzealot'
+ACTION_ATTACK = 'attack'
+
+smart_actions = [
+	ACTION_DO_NOTHING,
+	ACTION_BUILD_PYLON,
+	ACTION_BUILD_GATEWAY,
+	ACTION_BUILD_ZEALOT,
+]
+
+for mm_x in range(0, 64):
+	for mm_y in range(0, 64):
+		if (mm_x + 1) % 32 == 0 and (mm_y + 1) % 32 == 0:
+			smart_actions.append(ACTION_ATTACK + '_' + str(mm_x - 16) + '_' + str(mm_y - 16))
+
+
+# Stolen from https://github.com/MorvanZhou/Reinforcement-learning-with-tensorflow
+class QLearningTable:
+	def __init__(self, actions, learning_rate=0.01, reward_decay=0.9, e_greedy=0.9):
+		self.actions = actions  # a list
+		self.lr = learning_rate
+		self.gamma = reward_decay
+		self.epsilon = e_greedy
+		self.q_table = pd.DataFrame(columns=self.actions, dtype=np.float64)
+		self.disallowed_actions = {}
+
+	def choose_action(self, observation, excluded_actions=[]):
+		self.check_state_exist(observation)
+		
+		self.disallowed_actions[observation] = excluded_actions
+		
+		state_action = self.q_table.ix[observation, :]
+		
+		for excluded_action in excluded_actions:
+			del state_action[excluded_action]
+
+		if np.random.uniform() < self.epsilon:
+			# some actions have the same value
+			state_action = state_action.reindex(np.random.permutation(state_action.index))
+			
+			action = state_action.idxmax()
+		else:
+			action = np.random.choice(state_action.index)
+		
+		return action
+
+	def learn(self, s, a, r, s_):
+		if s == s_:
+			return
+		
+		self.check_state_exist(s_)
+		self.check_state_exist(s)
+		
+		q_predict = self.q_table.ix[s, a]
+		
+		s_rewards = self.q_table.ix[s_, :]
+		
+		if s_ in self.disallowed_actions:
+			for excluded_action in self.disallowed_actions[s_]:
+				del s_rewards[excluded_action]
+		
+		if s_ != 'terminal':
+			q_target = r + self.gamma * s_rewards.max()
+		else:
+			q_target = r  # next state is terminal
+			
+		# update
+		self.q_table.ix[s, a] += self.lr * (q_target - q_predict)
+
+	def check_state_exist(self, state):
+		if state not in self.q_table.index:
+			# append new state to q table
+			self.q_table = self.q_table.append(pd.Series([0] * len(self.actions), index=self.q_table.columns, name=state))
+
+
+
 class ProtossAgent(base_agent.BaseAgent):
 	def __init__(self):
 		super(ProtossAgent, self).__init__()
+		
+		self.qlearn = QLearningTable(actions=list(range(len(smart_actions))))
+		
+		self.previous_action = None
+		self.previous_state = None
+		
+		self.move_number = 0
+		
+		if os.path.isfile(DATA_FILE + '.gz'):
+			self.qlearn.q_table = pd.read_pickle(DATA_FILE + '.gz', compression='gzip')
 		
 		self.attack_coordinates = None
 
@@ -62,6 +160,17 @@ class ProtossAgent(base_agent.BaseAgent):
 
 	def step(self, obs):
 		super(ProtossAgent, self).step(obs)
+		
+		if obs.last():
+			reward = obs.reward
+			self.qlearn.learn(str(self.previous_state), self.previous_action, reward, 'terminal')
+			self.qlearn.q_table.to_pickle(DATA_FILE + '.gz', 'gzip')
+			self.previous_action = None
+			self.previous_state = None
+			self.move_number = 0
+			
+			return actions.FunctionCall(_NO_OP, [])
+		
 		if obs.first():
 			agent_y, agent_x = (obs.observation.feature_minimap.player_relative == 
 			features.PlayerRelative.SELF).nonzero()
