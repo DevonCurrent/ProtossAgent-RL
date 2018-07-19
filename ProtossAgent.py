@@ -78,9 +78,6 @@ class ProtossAgent(base_agent.BaseAgent):
 		zealots = self.get_units_by_type(obs, units.Protoss.Zealot)
 		pylon = self.get_units_by_type(obs, units.Protoss.Pylon)
 		free_supply = (obs.observation.player.food_cap - obs.observation.player.food_used)
-		idle_worker_count = obs.observation.player.idle_worker_count
-
-
 
 		if len(zealots) >= 12:
 			return self.attack_enemy(obs)
@@ -94,15 +91,7 @@ class ProtossAgent(base_agent.BaseAgent):
 		if self.can_do(obs, actions.FUNCTIONS.Train_Zealot_quick.id):
 			return actions.FUNCTIONS.Train_Zealot_quick("now")
 
-		if idle_worker_count > 1:
-			if self.unit_type_is_selected(obs, units.Protoss.Probe):
-				if self.can_do(obs, actions.FUNCTIONS.Harvest_Gather_screen.id):
-					x = random.randint(0, 83)
-					y = random.randint(0 ,83)
-					return actions.FUNCTIONS.Harvest_Gather_screen("now", (x, y))
-			return actions.FUNCTIONS.select_idle_worker
-
-		if len(gateways) > 0:
+		if len(gateways) > 0 and not self.unit_type_is_selected(obs, units.Protoss.Gateway):
 			gateway = random.choice(gateways)
 			return actions.FUNCTIONS.select_point("select_all_type", (gateway.x, gateway.y))
 
@@ -117,7 +106,7 @@ def main(unused_argv):
 			sc2_env.Bot(sc2_env.Race.random, sc2_env.Difficulty.easy)],
 			agent_interface_format=features.AgentInterfaceFormat(
 			feature_dimensions=features.Dimensions(screen=84, minimap=64),
-			use_feature_units=True), step_mul=16, game_steps_per_episode=0, visualize=True) as env:
+			use_feature_units=True), step_mul=16, game_steps_per_episode=0, visualize=True, save_replay_episodes=1, replay_dir='E:\Program Files (x86)\StarCraft II\Replays') as env:
 
 				agent.setup(env.observation_spec(), env.action_spec())
 				timesteps = env.reset()
