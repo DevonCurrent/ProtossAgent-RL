@@ -34,6 +34,7 @@ for mm_x in range(0, 64):
 		if (mm_x + 1) % 16 == 0 and (mm_y + 1) % 16 == 0:
 			smart_actions.append(ACTION_ATTACK + '_' + str(mm_x - 8) + '_' + str(mm_y - 8))
 
+BUILD_UNIT_REWARD = 0.1
 KILL_UNIT_REWARD = 0.2
 KILL_BUILDING_REWARD = 0.5
 
@@ -85,6 +86,7 @@ class ProtossAgentQLearning(base_agent.BaseAgent):
 		
 		self.qlearn = QLearningTable(actions=list(range(len(smart_actions))))
 		
+		self.previous_army_supply = 0
 		self.previous_killed_unit_score = 0
 		self.previous_killed_building_score = 0
 		
@@ -123,6 +125,7 @@ class ProtossAgentQLearning(base_agent.BaseAgent):
 		free_supply = (obs.observation.player.food_cap - obs.observation.player.food_used)
 		killed_unit_score = obs.observation.score_cumulative.killed_value_units
 		killed_building_score = obs.observation.score_cumulative.killed_value_structures
+		army_supply = obs.observation.player.food_army
 		
 		current_state = np.zeros(20)
 		current_state[0] = len(pylons)
@@ -147,7 +150,10 @@ class ProtossAgentQLearning(base_agent.BaseAgent):
 		
 		if self.previous_action is not None:
 			reward = 0
-				
+			
+			if army_supply > self.previous_army_supply:
+				reward += BUILD_UNIT_REWARD
+			
 			if killed_unit_score > self.previous_killed_unit_score:
 				reward += KILL_UNIT_REWARD
 					
@@ -160,6 +166,7 @@ class ProtossAgentQLearning(base_agent.BaseAgent):
 		rl_action = self.qlearn.choose_action(str(current_state))
 		smart_action = smart_actions[rl_action]
 		
+		self.previous_army_supply = army_supply
 		self.previous_killed_unit_score = killed_unit_score
 		self.previous_killed_building_score = killed_building_score
 		self.previous_state = current_state
@@ -178,7 +185,9 @@ class ProtossAgentQLearning(base_agent.BaseAgent):
 			probes = self.get_units_by_type(obs, units.Protoss.Probe)
 			if len(probes) > 0:
 				probe = random.choice(probes)
-				return actions.FUNCTIONS.select_point("select", (probe.x, probe.y))
+				if(0 < probe.x < 83):
+					if(0 < probe.y < 83):
+						return actions.FUNCTIONS.select_point("select", (probe.x, probe.y))
 
 		elif smart_action == ACTION_BUILD_PYLON:
 			if self.unit_type_is_selected(obs, units.Protoss.Probe):
@@ -222,7 +231,7 @@ def main(unused_argv):
 			sc2_env.Bot(sc2_env.Race.random, sc2_env.Difficulty.easy)],
 			agent_interface_format=features.AgentInterfaceFormat(
 			feature_dimensions=features.Dimensions(screen=84, minimap=64),
-			use_feature_units=True), step_mul=30, game_steps_per_episode=0, visualize=True, save_replay_episodes=1, 
+			use_feature_units=True), step_mul=16, game_steps_per_episode=0, visualize=True, save_replay_episodes=1, 
 					replay_dir='E:\Program Files (x86)\StarCraft II\Replays') as env:
 
 				agent.setup(env.observation_spec(), env.action_spec())
