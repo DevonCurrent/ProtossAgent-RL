@@ -10,6 +10,8 @@ from pysc2.env import sc2_env
 from pysc2.lib import actions, features, units
 from absl import app
 
+DATA_FILE = 'sparse_agent_data'
+
 ACTION_DO_NOTHING = 'donothing'
 ACTION_SELECT_PROBE = 'selectprobe'
 ACTION_BUILD_PYLON = 'buildpylon'
@@ -31,8 +33,8 @@ smart_actions = [
 
 for mm_x in range(0, 64):
 	for mm_y in range(0, 64):
-		if (mm_x + 1) % 16 == 0 and (mm_y + 1) % 16 == 0:
-			smart_actions.append(ACTION_ATTACK + '_' + str(mm_x - 8) + '_' + str(mm_y - 8))
+		if (mm_x + 1) % 32 == 0 and (mm_y + 1) % 32 == 0:
+			smart_actions.append(ACTION_ATTACK + '_' + str(mm_x - 16) + '_' + str(mm_y - 16))
 
 BUILD_UNIT_REWARD = 0.1
 KILL_UNIT_REWARD = 0.2
@@ -65,6 +67,9 @@ class QLearningTable:
 		return action
 
 	def learn(self, s, a, r, s_):
+		if s == s_:
+			return
+		
 		self.check_state_exist(s_)
 		self.check_state_exist(s)
 		
@@ -95,6 +100,9 @@ class ProtossAgentQLearning(base_agent.BaseAgent):
 		
 		self.attack_coordinates = None
 		
+		if os.path.isfile(DATA_FILE + '.gz'):
+			self.qlearn.q_table = pd.read_pickle(DATA_FILE + '.gz', compression='gzip')
+		
 	def unit_type_is_selected(self, obs, unit_type):
 		if (len(obs.observation.single_select) > 0 and
 		obs.observation.single_select[0].unit_type == unit_type):
@@ -115,6 +123,9 @@ class ProtossAgentQLearning(base_agent.BaseAgent):
 	def step(self, obs):
 		super(ProtossAgentQLearning, self).step(obs)
 		
+		if obs.last():
+			self.qlearn.q_table.to_pickle(DATA_FILE + '.gz', 'gzip')
+		
 		player_y, player_x = (obs.observation.feature_minimap.player_relative == features.PlayerRelative.SELF).nonzero()
 		self.base_top_left = 1 if player_y.any() and player_y.mean() <= 31 else 0
 		
@@ -130,22 +141,35 @@ class ProtossAgentQLearning(base_agent.BaseAgent):
 		current_state = np.zeros(20)
 		current_state[0] = len(pylons)
 		current_state[1] = len(gateways)
-		current_state[2] = free_supply
-		current_state[3] = worker_count
+		current_state[2] = army_supply
 		
-		hot_squares = np.zeros(16)        
+		hot_squares = np.zeros(4)        
 		enemy_y, enemy_x = (obs.observation.feature_minimap.player_relative == features.PlayerRelative.ENEMY).nonzero()
 		for i in range(0, len(enemy_y)):
-			y = int(math.ceil((enemy_y[i] + 1) / 16))
-			x = int(math.ceil((enemy_x[i] + 1) / 16))
+			y = int(math.ceil((enemy_y[i] + 1) / 32))
+			x = int(math.ceil((enemy_x[i] + 1) / 32))
 			
-			hot_squares[((y - 1) * 4) + (x - 1)] = 1
+			hot_squares[((y - 1) * 2) + (x - 1)] = 1
 		
 		if not self.base_top_left:
 			hot_squares = hot_squares[::-1]
 		
-		for i in range(0, 16):
+		for i in range(0, 4):
 			current_state[i + 4] = hot_squares[i]
+		
+		green_squares = np.zeros(4)
+		friendly_y, friendly_x = (obs.observation.feature_minimap.player_relative == features.PlayerRelative.SELF).nonzero()
+		for i in range(0, len(friendly_y)):
+			y = int(math.ceil((friendly_y[i] + 1) / 32))
+			x = int(math.ceil((friendly_x[i] + 1) / 32))
+			
+			green_squares[((y - 1) * 2) + (x - 1)] = 1
+		
+		if not self.base_top_left:
+			green_squares = green_squares[::-1]
+		
+		for i in range(0, 4):
+			current_state[i + 8] = green_squares[i]
 		
 		
 		if self.previous_action is not None:
@@ -159,7 +183,7 @@ class ProtossAgentQLearning(base_agent.BaseAgent):
 					
 			if killed_building_score > self.previous_killed_building_score:
 				reward += KILL_BUILDING_REWARD
-				
+			
 			self.qlearn.learn(str(self.previous_state), self.previous_action, reward, str(current_state))
 		
 		
@@ -231,7 +255,7 @@ def main(unused_argv):
 			sc2_env.Bot(sc2_env.Race.random, sc2_env.Difficulty.easy)],
 			agent_interface_format=features.AgentInterfaceFormat(
 			feature_dimensions=features.Dimensions(screen=84, minimap=64),
-			use_feature_units=True), step_mul=16, game_steps_per_episode=0, visualize=True, save_replay_episodes=1, 
+			use_feature_units=True), step_mul=16, game_steps_per_episode=0, visualize=True, save_replay_episodes=0, 
 					replay_dir='E:\Program Files (x86)\StarCraft II\Replays') as env:
 
 				agent.setup(env.observation_spec(), env.action_spec())
