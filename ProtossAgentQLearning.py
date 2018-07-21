@@ -27,8 +27,12 @@ smart_actions = [
 	ACTION_SELECT_GATEWAY,
 	ACTION_BUILD_ZEALOT,
 	ACTION_SELECT_ARMY,
-	ACTION_ATTACK,
 ]
+
+for mm_x in range(0, 64):
+	for mm_y in range(0, 64):
+		if (mm_x + 1) % 16 == 0 and (mm_y + 1) % 16 == 0:
+			smart_actions.append(ACTION_ATTACK + '_' + str(mm_x - 8) + '_' + str(mm_y - 8))
 
 KILL_UNIT_REWARD = 0.2
 KILL_BUILDING_REWARD = 0.5
@@ -106,40 +110,40 @@ class ProtossAgentQLearning(base_agent.BaseAgent):
 	def can_do(self, obs, action):
 		return action in obs.observation.available_actions
 
-	def transformLocation(self, x, x_distance, y, y_distance):
-		if not self.base_top_left:
-			return [x - x_distance, y - y_distance]
-		
-		return [x + x_distance, y + y_distance]
-		
 	def step(self, obs):
 		super(ProtossAgentQLearning, self).step(obs)
 		
-		if obs.first():
-			agent_y, agent_x = (obs.observation.feature_minimap.player_relative == 
-			features.PlayerRelative.SELF).nonzero()
-
-			agent_xmean = agent_x.mean()
-			agent_ymean = agent_y.mean()
-			
-			if agent_xmean <= 31 and agent_ymean <= 31:
-				self.attack_coordinates = (49, 49)
-			else:
-				self.attack_coordinates = (12, 16)
-			
+		player_y, player_x = (obs.observation.feature_minimap.player_relative == features.PlayerRelative.SELF).nonzero()
+		self.base_top_left = 1 if player_y.any() and player_y.mean() <= 31 else 0
+		
 		gateways = self.get_units_by_type(obs, units.Protoss.Gateway)
+		pylons = self.get_units_by_type(obs, units.Protoss.Pylon)
 		mineral_count = obs.observation.player.minerals
 		worker_count = obs.observation.player.food_workers
 		free_supply = (obs.observation.player.food_cap - obs.observation.player.food_used)
 		killed_unit_score = obs.observation.score_cumulative.killed_value_units
 		killed_building_score = obs.observation.score_cumulative.killed_value_structures
 		
-		current_state = [
-			len(gateways),
-			worker_count,
-			free_supply,
-			mineral_count,
-		]
+		current_state = np.zeros(20)
+		current_state[0] = len(pylons)
+		current_state[1] = len(gateways)
+		current_state[2] = free_supply
+		current_state[3] = worker_count
+		
+		hot_squares = np.zeros(16)        
+		enemy_y, enemy_x = (obs.observation.feature_minimap.player_relative == features.PlayerRelative.ENEMY).nonzero()
+		for i in range(0, len(enemy_y)):
+			y = int(math.ceil((enemy_y[i] + 1) / 16))
+			x = int(math.ceil((enemy_x[i] + 1) / 16))
+			
+			hot_squares[((y - 1) * 4) + (x - 1)] = 1
+		
+		if not self.base_top_left:
+			hot_squares = hot_squares[::-1]
+		
+		for i in range(0, 16):
+			current_state[i + 4] = hot_squares[i]
+		
 		
 		if self.previous_action is not None:
 			reward = 0
@@ -152,6 +156,7 @@ class ProtossAgentQLearning(base_agent.BaseAgent):
 				
 			self.qlearn.learn(str(self.previous_state), self.previous_action, reward, str(current_state))
 		
+		
 		rl_action = self.qlearn.choose_action(str(current_state))
 		smart_action = smart_actions[rl_action]
 		
@@ -159,6 +164,12 @@ class ProtossAgentQLearning(base_agent.BaseAgent):
 		self.previous_killed_building_score = killed_building_score
 		self.previous_state = current_state
 		self.previous_action = rl_action
+		
+		x = 0
+		y = 0
+		if '_' in smart_action:
+			smart_action, x, y = smart_action.split('_')
+			self.attack_coordinates = (int(x), int(y))
 		
 		if smart_action == ACTION_DO_NOTHING:
 			return actions.FUNCTIONS.no_op()
@@ -197,11 +208,9 @@ class ProtossAgentQLearning(base_agent.BaseAgent):
 				return actions.FUNCTIONS.select_army("select")
 
 		elif smart_action == ACTION_ATTACK:
-			if self.unit_type_is_selected(obs, units.Protoss.Zealot):
-				if self.can_do(obs, actions.FUNCTIONS.Attack_minimap.id):
-					return actions.FUNCTIONS.Attack_minimap("now",
-					self.attack_coordinates)
-				
+			if not self.unit_type_is_selected(obs, units.Protoss.Probe) and self.can_do(obs, actions.FUNCTIONS.Attack_minimap.id):
+				return actions.FUNCTIONS.Attack_minimap("now", self.attack_coordinates)
+
 		return actions.FUNCTIONS.no_op()
 
 
@@ -213,7 +222,8 @@ def main(unused_argv):
 			sc2_env.Bot(sc2_env.Race.random, sc2_env.Difficulty.easy)],
 			agent_interface_format=features.AgentInterfaceFormat(
 			feature_dimensions=features.Dimensions(screen=84, minimap=64),
-			use_feature_units=True), step_mul=30, game_steps_per_episode=0, visualize=True, save_replay_episodes=1, replay_dir='E:\Program Files (x86)\StarCraft II\Replays') as env:
+			use_feature_units=True), step_mul=30, game_steps_per_episode=0, visualize=True, save_replay_episodes=1, 
+					replay_dir='E:\Program Files (x86)\StarCraft II\Replays') as env:
 
 				agent.setup(env.observation_spec(), env.action_spec())
 				timesteps = env.reset()
