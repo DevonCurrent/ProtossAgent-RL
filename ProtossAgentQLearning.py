@@ -36,10 +36,6 @@ for mm_x in range(0, 64):
 		if (mm_x + 1) % 32 == 0 and (mm_y + 1) % 32 == 0:
 			smart_actions.append(ACTION_ATTACK + '_' + str(mm_x - 16) + '_' + str(mm_y - 16))
 
-BUILD_UNIT_REWARD = 0.1
-KILL_UNIT_REWARD = 0.2
-KILL_BUILDING_REWARD = 0.5
-
 # Stolen from https://github.com/MorvanZhou/Reinforcement-learning-with-tensorflow
 class QLearningTable:
 	def __init__(self, actions, learning_rate=0.01, reward_decay=0.9, e_greedy=0.9):
@@ -74,7 +70,11 @@ class QLearningTable:
 		self.check_state_exist(s)
 		
 		q_predict = self.q_table.ix[s, a]
-		q_target = r + self.gamma * self.q_table.ix[s_, :].max()
+		
+		if s_ != 'terminal':
+			q_target = r + self.gamma * self.q_table.ix[s_, :].max()
+		else:
+			q_target = r  # next state is terminal
 		
 		# update
 		self.q_table.ix[s, a] += self.lr * (q_target - q_predict)
@@ -90,10 +90,6 @@ class ProtossAgentQLearning(base_agent.BaseAgent):
 		super(ProtossAgentQLearning, self).__init__()
 		
 		self.qlearn = QLearningTable(actions=list(range(len(smart_actions))))
-		
-		self.previous_army_supply = 0
-		self.previous_killed_unit_score = 0
-		self.previous_killed_building_score = 0
 		
 		self.previous_action = None
 		self.previous_state = None
@@ -124,11 +120,21 @@ class ProtossAgentQLearning(base_agent.BaseAgent):
 		super(ProtossAgentQLearning, self).step(obs)
 		
 		if obs.last():
+			reward = obs.reward
+			
+			self.qlearn.learn(str(self.previous_state), self.previous_action, reward, 'terminal')
+			
 			self.qlearn.q_table.to_pickle(DATA_FILE + '.gz', 'gzip')
+			
+			self.previous_action = None
+			self.previous_state = None
+			
+			return actions.FUNCTIONS.no_op()
 		
 		player_y, player_x = (obs.observation.feature_minimap.player_relative == features.PlayerRelative.SELF).nonzero()
 		self.base_top_left = 1 if player_y.any() and player_y.mean() <= 31 else 0
 		
+		nexus = self.get_units_by_type(obs, units.Protoss.Nexus)
 		gateways = self.get_units_by_type(obs, units.Protoss.Gateway)
 		pylons = self.get_units_by_type(obs, units.Protoss.Pylon)
 		mineral_count = obs.observation.player.minerals
@@ -139,9 +145,10 @@ class ProtossAgentQLearning(base_agent.BaseAgent):
 		army_supply = obs.observation.player.food_army
 		
 		current_state = np.zeros(20)
-		current_state[0] = len(pylons)
-		current_state[1] = len(gateways)
-		current_state[2] = army_supply
+		current_state[0] = len(nexus)
+		current_state[1] = len(pylons)
+		current_state[2] = len(gateways)
+		current_state[3] = army_supply
 		
 		hot_squares = np.zeros(4)        
 		enemy_y, enemy_x = (obs.observation.feature_minimap.player_relative == features.PlayerRelative.ENEMY).nonzero()
@@ -173,18 +180,7 @@ class ProtossAgentQLearning(base_agent.BaseAgent):
 		
 		
 		if self.previous_action is not None:
-			reward = 0
-			
-			if army_supply > self.previous_army_supply:
-				reward += BUILD_UNIT_REWARD
-			
-			if killed_unit_score > self.previous_killed_unit_score:
-				reward += KILL_UNIT_REWARD
-					
-			if killed_building_score > self.previous_killed_building_score:
-				reward += KILL_BUILDING_REWARD
-			
-			self.qlearn.learn(str(self.previous_state), self.previous_action, reward, str(current_state))
+			self.qlearn.learn(str(self.previous_state), self.previous_action, 0, str(current_state))
 		
 		
 		rl_action = self.qlearn.choose_action(str(current_state))
